@@ -8,20 +8,20 @@
 
 #include <Windows.h>
 
-#include <string>
-#include "windows.h"
 #include "Shlwapi.h"
 #include "TlHelp32.h"
 #include <stdexcept>
+#include <filesystem>
 
 #pragma comment(lib, "shlwapi")
 
 using namespace std;
+namespace fs = std::filesystem;
 
 #pragma region constants
 
 static const wchar_t *BOOTSTRAP_DLL = L"Bootstrap.dll";
-static const wchar_t *BOOTSTRAP_PATH = L"..\\Bootstrap\\cmake-build-release\\";
+static const wchar_t *BOOTSTRAP_DIR_PATH = L"..\\..\\Bootstrap\\cmake-build-release\\";
 
 static const wstring DELIM = L"\t";
 
@@ -56,15 +56,15 @@ static const wchar_t *DEDICATIONS = L"This app is dedicated to my brother Milan.
 #pragma endregion
 
 // prototypes
-DWORD_PTR Inject(const HANDLE hProcess, const LPVOID function, const wstring &argument);
+DWORD_PTR Inject(HANDLE hProcess, LPVOID function, const wstring &argument);
 
 DWORD_PTR GetFunctionOffset(const wstring &library, const char *functionName);
 
 int GetProcessIdByName(const wchar_t *processName);
 
-DWORD_PTR GetRemoteModuleHandle(const int processId, const wchar_t *moduleName);
+DWORD_PTR GetRemoteModuleHandle(int processId, const wchar_t *moduleName);
 
-void EnablePrivilege(const wchar_t *lpPrivilegeName, const bool bEnable);
+void EnablePrivilege(const wchar_t *lpPrivilegeName, bool bEnable);
 
 inline size_t GetStringAllocSize(const wstring &str);
 
@@ -76,10 +76,10 @@ void PrintUsage();
 
 // global variables
 int g_processId = 0;        // id of process to inject
-const wchar_t *g_moduleName = NULL;    // full path of managed assembly (exe or dll) to inject
-const wchar_t *g_typeName = NULL;    // the assembly and type of the managed assembly
-const wchar_t *g_methodName = NULL;    // the managed method to execute
-const wchar_t *g_Argument = NULL;    // the optional argument to pass into the method to execute
+const wchar_t *g_moduleName = nullptr;    // full path of managed assembly (exe or dll) to inject
+const wchar_t *g_typeName = nullptr;    // the assembly and type of the managed assembly
+const wchar_t *g_methodName = nullptr;    // the managed method to execute
+const wchar_t *g_Argument = nullptr;    // the optional argument to pass into the method to execute
 
 int wmain2(int argc, const wchar_t *argv[]) {
     // parse args
@@ -111,7 +111,7 @@ int wmain2(int argc, const wchar_t *argv[]) {
 
     // unload bootstrap.dll out of the remote process
     FARPROC fnFreeLibrary = GetProcAddress(GetModuleHandle(L"Kernel32"), "FreeLibrary");
-    CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE) fnFreeLibrary, (LPVOID) hBootstrap, NULL, 0);
+    CreateRemoteThread(hProcess, nullptr, 0, (LPTHREAD_START_ROUTINE) fnFreeLibrary, (LPVOID) hBootstrap, NULL, nullptr);
 
     // close process handle
     CloseHandle(hProcess);
@@ -138,14 +138,14 @@ int wmain(int argc, wchar_t* argv[]) {
 
 DWORD_PTR Inject(const HANDLE hProcess, const LPVOID function, const wstring &argument) {
     // allocate some memory in remote process
-    LPVOID baseAddress = VirtualAllocEx(hProcess, NULL, GetStringAllocSize(argument), MEM_COMMIT | MEM_RESERVE,
+    LPVOID baseAddress = VirtualAllocEx(hProcess, nullptr, GetStringAllocSize(argument), MEM_COMMIT | MEM_RESERVE,
                                         PAGE_READWRITE);
 
     // write argument into remote process
-    BOOL isSucceeded = WriteProcessMemory(hProcess, baseAddress, argument.c_str(), GetStringAllocSize(argument), NULL);
+    BOOL isSucceeded = WriteProcessMemory(hProcess, baseAddress, argument.c_str(), GetStringAllocSize(argument), nullptr);
 
     // make the remote process invoke the function
-    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE) function, baseAddress, NULL, 0);
+    HANDLE hThread = CreateRemoteThread(hProcess, nullptr, 0, (LPTHREAD_START_ROUTINE) function, baseAddress, NULL, 0);
 
     // wait for thread to exit
     WaitForSingleObject(hThread, INFINITE);
@@ -247,13 +247,13 @@ void EnablePrivilege(const wchar_t *lpPrivilegeName, const bool enable) {
     ZeroMemory(&privileges, sizeof(privileges));
     privileges.PrivilegeCount = 1;
     privileges.Privileges[0].Attributes = (enable) ? SE_PRIVILEGE_ENABLED : 0;
-    if (!LookupPrivilegeValue(NULL, lpPrivilegeName, &privileges.Privileges[0].Luid)) {
+    if (!LookupPrivilegeValue(nullptr, lpPrivilegeName, &privileges.Privileges[0].Luid)) {
         CloseHandle(token);
         return;
     }
 
     // add the privilege
-    BOOL result = AdjustTokenPrivileges(token, FALSE, &privileges, sizeof(privileges), NULL, NULL);
+    AdjustTokenPrivileges(token, FALSE, &privileges, sizeof(privileges), nullptr, nullptr);
 
     // close the handle
     CloseHandle(token);
@@ -265,22 +265,12 @@ inline size_t GetStringAllocSize(const wstring &str) {
 }
 
 wstring GetBootstrapPath() {
-    // get full path to exe
-    wchar_t buffer[MAX_PATH];
-    GetModuleFileName(NULL, buffer, MAX_PATH);
-
-    // remove filename
-    PathRemoveFileSpec(buffer);
-
-    // append bootstrap to buffer if it will fit
-    size_t size = wcslen(buffer) + wcslen(BOOTSTRAP_DLL);
-    if (size <= MAX_PATH)
-        PathAppend(buffer, BOOTSTRAP_DLL);
-    else
-        throw runtime_error("Module name cannot exceed MAX_PATH");
-
-    // return path
-    return buffer;
+fs::path relativePath = fs::path(BOOTSTRAP_DIR_PATH);
+relativePath += fs::path(BOOTSTRAP_DLL);
+fs::path absolutePath = fs::absolute(relativePath);
+if (wcslen(absolutePath.c_str()) > MAX_PATH)
+    throw runtime_error("Module name cannot exceed MAX_PATH");
+return absolutePath;
 }
 
 
@@ -307,7 +297,7 @@ bool ParseArgs(int argc, const wchar_t *argv[]) {
     }
 
     // basic validation
-    if (g_processId == NULL || g_moduleName == NULL || g_typeName == NULL || g_methodName == NULL)
+    if (g_processId == NULL || g_moduleName == nullptr || g_typeName == nullptr || g_methodName == nullptr)
         return false;
     else if (wcslen(g_moduleName) > MAX_PATH)
         throw runtime_error("Module name cannot exceed MAX_PATH");

@@ -23,6 +23,8 @@ namespace fs = std::filesystem;
 static const wchar_t *BOOTSTRAP_DLL = L"Bootstrap.dll";
 static const wchar_t *BOOTSTRAP_DIR_PATH = L"..\\..\\Bootstrap\\cmake-build-release\\";
 
+static const wchar_t *BOT_PATH = L"..\\..\\Bot\\Bot\\bin\\Debug\\Bot.exe";
+
 static const wstring DELIM = L"\t";
 
 static const wstring NOTICE =
@@ -120,18 +122,18 @@ int wmain2(int argc, const wchar_t *argv[]) {
 }
 
 int wmain(int argc, wchar_t* argv[]) {
+    auto botPathAbsolute = fs::absolute(BOT_PATH);
+
     const wchar_t* arguments[11] = {
             L"potato",
             L"-m", L"EntryPoint",
-            L"-i", L"C:\\Users\\nmcku\\source\\repos\\FrameworkInjection\\InjectExample\\bin\\Debug\\InjectExample.exe",
-            L"-l", L"InjectExample.Program",
-            L"-a", L"helloinject",
-            L"-n", L"Wow.exe"
+            L"-i", botPathAbsolute.c_str(),
+            L"-l", L"Bot.Program",
+            L"-a", L"hello inject",
+            L"-n", L"BloogQuest.exe"
     };
 
     int result = wmain2(11, arguments);
-
-
 
     return result;
 }
@@ -208,6 +210,7 @@ int GetProcessIdByName(const wchar_t *processName) {
     return 0;
 }
 
+// needs to altered if working with 64 bit processes
 DWORD_PTR GetRemoteModuleHandle(const int processId, const wchar_t *moduleName) {
     MODULEENTRY32 me32;
     HANDLE hSnapshot = INVALID_HANDLE_VALUE;
